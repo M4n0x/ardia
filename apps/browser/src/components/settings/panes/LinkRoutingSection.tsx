@@ -12,6 +12,8 @@ import { appLinks } from "../../../state/settings/paneData";
 import { useResource } from "../../../state/settings/resources";
 import { goToSettingsPane } from "../../../state/settings/settingsWindows";
 import { showSettingsSheet } from "../../../state/settings/sheet";
+import { useSync } from "../../../state/sync/engine";
+import { PLATFORM_TERMS } from "../../../lib/platformTerms";
 import { Box, Button, PopUp, Symbol, Text, TextField, Toggle, useTheme, type Option } from "../../ui";
 import { Favicon } from "../../favicon/Favicon";
 import { Group, ProfilePicker, Row, SectionHeader, useSettingsProfile } from "../Form";
@@ -29,8 +31,13 @@ function targetLabel(target: AirTrafficTarget, profiles: RoutableProfile[], grou
   return target.groupKey ? `${profile} › ${groupName ?? CLOSED_GROUP}` : `${profile} · ${OPEN_LABELS[target.open]}`;
 }
 
-function ruleProblem(target: string | null, groupGone: boolean): string | null {
-  if (!target) return "Its profile is gone, so this rule is skipped. Edit it to pick another.";
+const notHereYet = (name: string, outcome: string) => `${name} isn't on this ${PLATFORM_TERMS.computer} yet, so ${outcome}. Add it in Settings › General › Sync.`;
+
+const useProfileElsewhere = (profileId: string | null, profiles: RoutableProfile[]): string | null =>
+  useSync((s) => (profileId && !profiles.some((p) => p.id === profileId) ? (s.remoteProfiles.find((p) => p.syncId === profileId)?.name ?? null) : null));
+
+function ruleProblem(target: string | null, groupGone: boolean, elsewhere: string | null): string | null {
+  if (!target) return elsewhere ? notHereYet(elsewhere, "this rule is skipped") : "Its profile is gone, so this rule is skipped. Edit it to pick another.";
   return groupGone ? GROUP_CLOSED : null;
 }
 
@@ -70,6 +77,7 @@ export function LinkRoutingSection({ profileId }: { profileId: string | null }) 
 function RuleRow({ rule, index, last, profiles }: { rule: AirTrafficRule; index: number; last: boolean; profiles: RoutableProfile[] }) {
   const groupName = useRouteGroupName(rule.profileId, rule.groupKey);
   const target = targetLabel(rule, profiles, groupName);
+  const elsewhere = useProfileElsewhere(rule.profileId, profiles);
   const groupGone = !!rule.groupKey && !groupName;
   const more = async () => {
     const choice = await showMenu([{ id: "edit", title: "Edit…" }, { separator: true }, { id: "up", title: "Move Up", enabled: index > 0 }, { id: "down", title: "Move Down", enabled: !last }, { separator: true }, { id: "delete", title: "Delete" }]);
@@ -78,7 +86,7 @@ function RuleRow({ rule, index, last, profiles }: { rule: AirTrafficRule; index:
     else if (choice === "delete") removeAirTrafficRule(rule.id);
   };
   return (
-    <Row icon={null} title={`${fromLabel(rule.from)} · ${conditionLabel(rule.when)} → ${target ?? "a deleted profile"}`} description={ruleProblem(target, groupGone)}>
+    <Row icon={null} title={`${fromLabel(rule.from)} · ${conditionLabel(rule.when)} → ${target ?? (elsewhere ? `${elsewhere} · ${OPEN_LABELS[rule.open]}` : "a deleted profile")}`} description={ruleProblem(target, groupGone, elsewhere)}>
       <Toggle value={rule.enabled} accessibilityLabel="Use this rule" onChange={(enabled) => updateAirTrafficRule(rule.id, { enabled })} />
       <Button variant="icon" icon="pencil" size="m" onPress={() => showSettingsSheet(<RuleSheet rule={rule} />)} tooltip="Edit" />
       <Button variant="icon" icon="ellipsis.circle" size="m" onPress={() => void more()} tooltip="Move or Delete" />
@@ -124,6 +132,7 @@ function FallbackGroup({ profiles }: { profiles: RoutableProfile[] }) {
 
 function FallbackRow({ profiles }: { profiles: RoutableProfile[] }) {
   const { fallback } = useAirTrafficConfig();
+  const elsewhere = useProfileElsewhere(fallback?.profileId ?? null, profiles);
   const options: Option<string>[] = [
     { value: USUAL, title: "Ardia's usual routing" },
     ...profileOptions(profiles).map((o, i) => ({
@@ -143,7 +152,7 @@ function FallbackRow({ profiles }: { profiles: RoutableProfile[] }) {
           },
     );
   return (
-    <Row anchor="automations.linkFallback" description={fallback ? undefined : "They open as Settings › Tabs says, in the profile you used last."}>
+    <Row anchor="automations.linkFallback" description={!fallback ? "They open as Settings › Tabs says, in the profile you used last." : elsewhere ? notHereYet(elsewhere, "these links take Ardia's usual routing") : undefined}>
       <PopUp value={value} options={options} onChange={pick} minWidth={180} />
       {fallback ? <PopUp value={fallback.open} options={OPEN_OPTIONS} onChange={(open) => setAirTrafficFallback({ ...fallback, open })} /> : null}
     </Row>

@@ -429,6 +429,10 @@ the data dir (`air-traffic.json`, version 2: an ordered `rules` list and a `fall
   change is saved before the store takes it, so a save that fails changes neither the rules nor the hold.
 - **Versions.** Version 2 added `groupKey`; a version 1 file reads unchanged, its rules naming no group. A build from
   before a version reads a newer file as no rules, since downgrades aren't supported.
+- **Sync.** The rules and Everything Else sync with Settings (`docs/sync.md`, `atc:` records), each rule's profile by
+  its sync id, so it opens the same profile on every Mac. A rule for a profile this Mac hasn't added stays in the list,
+  skipped, and its row names the profile and says to add it in Settings › General › Sync; adding it points the rule at
+  it. Code: `state/sync/airTrafficAdapter.ts`.
 - **Source apps.** The app (bundle id, name) of the last 20 distinct apps that sent a link is kept in
   `link-sources.json` for the app picker, on this Mac only and never sent.
 - **Try a Link** runs the same `traceOpening` and `traceLink` the real decision runs (`state/automation/decisions.ts`),
@@ -440,9 +444,11 @@ the data dir (`air-traffic.json`, version 2: an ordered `rules` list and a `fall
   link in a group); `state/littleArdia/actions.ts` opens links from other apps; the pane is
   `components/settings/panes/AirTraffic.tsx` with its sheet `AirTrafficSheet.tsx`.
 - Telemetry: `usage_counts.air_traffic_rule_links` and `air_traffic_fallback_links` (links from other apps) and
-  `air_traffic_group_links` (those that joined a tab group), and `settings_snapshot`'s `air_traffic_rules` (enabled
-  rules), `air_traffic_wildcard_rules` (enabled rules with a wildcard pattern), `air_traffic_group_rules` (enabled rules
-  that send into a group) and `air_traffic_fallback` (true or false).
+  `air_traffic_group_links` (those that joined a tab group), `air_traffic_synced_rules` (rules that arrived from another
+  device through sync), and `settings_snapshot`'s `air_traffic_rules` (enabled rules), `air_traffic_wildcard_rules`
+  (enabled rules with a wildcard pattern), `air_traffic_group_rules` (enabled rules that send into a group),
+  `air_traffic_profileless_rules` (enabled rules whose profile isn't on this device) and `air_traffic_fallback` (true or
+  false).
 
 ## Approvals
 

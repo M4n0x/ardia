@@ -19,7 +19,7 @@ const SYNC_TYPES = {
     description: "Extensions from the Chrome Web Store, whether they’re on, and whether they’re pinned.",
     profileData: true,
   },
-  settings: { title: "Settings", description: "Search engine, appearance, tab and keyboard settings." },
+  settings: { title: "Settings", description: "Search engine, appearance, tab and keyboard settings, and Air Traffic Control rules." },
 } as const satisfies Record<string, SyncTypeSpec>;
 
 export type DataType = keyof typeof SYNC_TYPES;

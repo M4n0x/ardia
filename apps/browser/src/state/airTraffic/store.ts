@@ -57,12 +57,16 @@ export const targetUsableNow = (profileId: string, groupKey: string | null) => {
   return !!s.profiles[profileId] && !isIncognitoProfile(profileId) && (!groupKey || hasRouteGroup(s, profileId, groupKey));
 };
 
-function saveConfig(change: (config: AirTrafficConfig) => AirTrafficConfig) {
+function saveConfig(change: (config: AirTrafficConfig) => AirTrafficConfig): boolean {
   const before = currentAirTraffic();
   const config = change(before);
-  if (config === before || !write(AIR_TRAFFIC_DOC, airTrafficJson(config))) return;
+  if (config === before) return true;
+  if (!write(AIR_TRAFFIC_DOC, airTrafficJson(config))) return false;
   useAirTraffic.setState({ config });
+  return true;
 }
+
+export const replaceAirTraffic = (config: AirTrafficConfig): boolean => saveConfig((before) => (airTrafficJson(before) === airTrafficJson(config) ? before : config));
 
 const newRuleId = () => `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
 

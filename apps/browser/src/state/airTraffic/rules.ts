@@ -127,13 +127,13 @@ function conditionOf(v: unknown): LinkCondition | null {
   return null;
 }
 
-function targetFrom(v: unknown): AirTrafficTarget | null {
+export function targetFrom(v: unknown): AirTrafficTarget | null {
   if (!isFields(v) || !isProfileRef(v.profileId) || !isOpenAs(v.open)) return null;
   const groupKey = typeof v.groupKey === "string" ? v.groupKey : undefined;
   return cleanTarget({ profileId: v.profileId, open: v.open, groupKey });
 }
 
-function ruleOf(v: unknown): AirTrafficRule | null {
+export function ruleOf(v: unknown): AirTrafficRule | null {
   if (!isFields(v) || typeof v.id !== "string" || !v.id || typeof v.enabled !== "boolean") return null;
   const from = v.from === null ? null : sourceAppOf(v.from);
   const when = conditionOf(v.when);
@@ -148,8 +148,7 @@ export function parseAirTraffic(json: string | null | undefined): AirTrafficConf
   const seen = new Set<string>();
   const rules = (Array.isArray(doc.rules) ? doc.rules : [])
     .map(ruleOf)
-    .filter((r): r is AirTrafficRule => !!r && !seen.has(r.id) && !!seen.add(r.id))
-    .slice(0, MAX_AIR_TRAFFIC_RULES);
+    .filter((r): r is AirTrafficRule => !!r && !seen.has(r.id) && !!seen.add(r.id));
   return { rules, fallback: doc.fallback === null || doc.fallback === undefined ? null : targetFrom(doc.fallback) };
 }
 

@@ -30,6 +30,7 @@ import { isQuitting, saveBeforeQuit } from "../app/quit";
 import { onProfilesOpened, profileOpened } from "../profiles/profileLoading";
 import { markOpenTabsSynced, openTabsClosed, recordOpenTabCloses } from "./openTabCloses";
 import { PLATFORM_TERMS } from "../../lib/platformTerms";
+import { useAirTraffic } from "../airTraffic/store";
 
 export { onTabsReceived } from "./sentTabs";
 export { takeOpenTabSyncCounts } from "../telemetry/openTabSyncCounts";
@@ -72,10 +73,7 @@ export function takeSnapshotWrites() {
   return taken;
 }
 
-function load() {
-  const loaded = read();
-  if (loaded) doc = loaded;
-}
+const load = () => void (doc = read() ?? doc);
 
 function publishUi(patch: Partial<SyncUi> = {}) {
   useSync.setState({
@@ -387,6 +385,7 @@ export function startSync() {
     if (closed && !cycle) save();
     if (closed || (!cycle && (s.bookmarks !== prev.bookmarks || s.settings !== prev.settings || s.profiles !== prev.profiles || s.profileOrder !== prev.profileOrder || s.groups !== prev.groups))) scheduleSync();
   });
+  useAirTraffic.subscribe((s, prev) => void (s.config !== prev.config && !cycle && scheduleSync()));
   if (__DEV__) {
     (globalThis as { acSync?: object }).acSync = {
       useSync, syncNow, turnOnSync, enterRecoveryPhrase, stopSync, setTypeSynced, setProfileSynced, setOpenTabsSynced, addRemoteProfile, removeRemoteProfile, removeSyncedDevice, setSyncFolder, folderInfo,

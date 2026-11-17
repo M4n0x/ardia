@@ -3,6 +3,8 @@ import { useBrowser } from "../browser/store";
 import { bookmarksAdapter, deviceAdapter, deviceTabsAdapter, historyAdapter, inTodaysNames, passwordsAdapter, sharedDataAdapter } from "./adapters";
 import { profileOpenTabsAdapter, profilesAdapter, profileThemesAdapter, profileTopAppsAdapter } from "./profileAdapters";
 import { settingsAdapter } from "./settingsAdapter";
+import { airTrafficAdapter } from "./airTrafficAdapter";
+import { linkedProfileId } from "./profileLinks";
 import { pinnedAreaAdapters } from "./pinned";
 import { extensionsAdapterFor } from "./extensions";
 import { APP_SCOPE, typeSyncedFor, type DataType, type SyncDoc } from "./syncDoc";
@@ -52,7 +54,7 @@ export function appAdapters(doc: SyncDoc, retiring: boolean): Adapter[] {
   const enabledLinks = () => Object.fromEntries(Object.entries(doc.profiles).filter(([, l]) => l.enabled));
   const removed = () => removedRecordKeys(doc);
   return [
-    ...(doc.types.settings ? [inTodaysNames(settingsAdapter)] : []),
+    ...(doc.types.settings ? [inTodaysNames(settingsAdapter), airTrafficAdapter({ syncIdOf: (id) => doc.profiles[id]?.syncId, profileIdOf: (syncId) => linkedProfileId(doc, syncId) })] : []),
     sharedDataAdapter(() => doc.profiles, removed),
     profilesAdapter(withSharedOwners(doc, enabledLinks), removed),
     profileThemesAdapter(enabledLinks, () => doc.scopes[APP_SCOPE]?.records, removed),

@@ -26,7 +26,7 @@ const slackApp = { bundleId: "com.tinyspeck.slackmacgap", name: "Slack" };
 
 let next = 0;
 const rule = (over = {}) => ({ id: `t${++next}`, enabled: true, from: null, when: { kind: "any" }, profileId: null, open: "tab", ...over });
-const counted = (over) => ({ air_traffic_rule_links: 0, air_traffic_fallback_links: 0, air_traffic_group_links: 0, ...over });
+const counted = (over) => ({ air_traffic_rule_links: 0, air_traffic_fallback_links: 0, air_traffic_group_links: 0, air_traffic_synced_rules: 0, ...over });
 
 function fresh({ rules: list = [], fallback = null, hooks = [] } = {}) {
   S().hydrate({ profiles: { default: PERSONAL }, profileOrder: ["default"] });
@@ -261,14 +261,17 @@ test("incoming links remember the last 20 distinct apps that sent them, and noth
   assert.ok(!picks.common.some((a) => a.name === "Slack" || a.name === "Mail"));
 });
 
-test("telemetry sends only how many rules are on, how many send links into a tab group, and whether a fallback is set", () => {
-  const snap = airTrafficSetting({
-    rules: [rule({ from: slackApp }), rule({ enabled: false, profileId: "p", groupKey: "g" }), rule(), rule({ profileId: "p", groupKey: "g" })],
-    fallback: { profileId: "p", open: "tab" },
-  });
-  assert.deepEqual(snap, { air_traffic_rules: "3", air_traffic_wildcard_rules: "0", air_traffic_fallback: "true", air_traffic_group_rules: "1" });
+test("telemetry sends only how many rules are on, how many send links into a tab group, how many point at a profile not on this Mac, and whether a fallback is set", () => {
+  const snap = airTrafficSetting(
+    {
+      rules: [rule({ from: slackApp }), rule({ enabled: false, profileId: "p", groupKey: "g" }), rule(), rule({ profileId: "p", groupKey: "g" }), rule({ profileId: "elsewhere" })],
+      fallback: { profileId: "p", open: "tab" },
+    },
+    (id) => id === "p",
+  );
+  assert.deepEqual(snap, { air_traffic_rules: "4", air_traffic_wildcard_rules: "0", air_traffic_fallback: "true", air_traffic_group_rules: "1", air_traffic_profileless_rules: "1" });
   assert.deepEqual(cleanProperties(snap), snap);
-  assert.deepEqual(airTrafficSetting(rules.NO_AIR_TRAFFIC), { air_traffic_rules: "0", air_traffic_wildcard_rules: "0", air_traffic_fallback: "false", air_traffic_group_rules: "0" });
+  assert.deepEqual(airTrafficSetting(rules.NO_AIR_TRAFFIC), { air_traffic_rules: "0", air_traffic_wildcard_rules: "0", air_traffic_fallback: "false", air_traffic_group_rules: "0", air_traffic_profileless_rules: "0" });
 });
 
 test("a tab group needs a profile opened as a tab; the parser and the store both enforce it", () => {
