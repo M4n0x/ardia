@@ -18,10 +18,16 @@ public class ShellModule: Module {
       _ = installTextFieldSelectAll
       _ = installViewSelectAll
       _ = installSubmenuAction
+      _ = installHoverAfterWindowMoves
       _ = installInputSourceKeys
       _ = installScrollViewInsetFix
+      _ = installStripWheel
       _ = installOutsidePressMonitor
       _ = installWindowMoveFallback
+      _ = installCenteredResize
+      FullScreenLifecycle.shared.stateOf = { ArdiaChromeWindowHost.windowIsFullScreen($0) }
+      FullScreenLifecycle.shared.settledByCheck = { WindowManager.shared.recordFullScreen($0, on: $1) }
+      FullScreenLifecycle.shared.start()
       self.lifetime.begin(self) {
         self.appearanceObservation?.invalidate()
         self.appearanceObservation = nil
@@ -41,6 +47,8 @@ public class ShellModule: Module {
           ShellEvents.send(.app, ["type": "appearance", "dark": ShellModule.isDark])
         }
         self.observeForSidebar()
+        LittleArdiaHandoff.shared.start()
+        LittleArdiaHotKey.shared.start()
         ArdiaHost.quitCancelledHandler = { ShellEvents.send(.app, ["type": "quitCancelled"]) }
         Self.quitCancelledOwner = ObjectIdentifier(self)
       }
@@ -74,6 +82,14 @@ public class ShellModule: Module {
       DispatchQueue.main.async {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+      }
+    }
+    Function("copyURL") { (address: String) in
+      DispatchQueue.main.async {
+        let board = NSPasteboard.general
+        board.clearContents()
+        if let url = URL(string: address), url.scheme != nil { board.writeObjects([url as NSURL]) }
+        board.setString(address, forType: .string)
       }
     }
     AsyncFunction("readText") { () -> String in NSPasteboard.general.string(forType: .string) ?? "" }.runOnQueue(.main)

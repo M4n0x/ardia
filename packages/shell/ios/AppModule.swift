@@ -6,11 +6,18 @@ import ExpoModulesCore
 public class AppModule: Module {
   public func definition() -> ModuleDefinition {
     Name("ArdiaApp")
-    Constant("apiVersion") { () -> Int in 62 }
+    Constant("apiVersion") { () -> Int in 95 }
 
     OnCreate {
       DispatchQueue.main.async { AppIcons.restore() }
     }
+
+    Function("interfaceScale") { () -> Double in Double(InterfaceScale.scale) }
+    Function("interfaceScaleRange") { () -> [Double] in [Double(InterfaceScale.minimum), Double(InterfaceScale.maximum)] }
+    AsyncFunction("setInterfaceScale") { (scale: Double) -> Double in
+      InterfaceScale.scale = CGFloat(scale)
+      return Double(InterfaceScale.scale)
+    }.runOnQueue(.main)
 
     AsyncFunction("setWindowActivity") { (windowId: String, url: String?, title: String?) in
       Handoff.setActivity(windowId: windowId, url: url, title: title)
@@ -65,12 +72,14 @@ public class AppModule: Module {
         "feedbackEmail": Self.infoString("ACFeedbackEmail") as Any,
         "videoTourURL": Self.infoString("ACVideoTourURL") as Any,
         "releaseNotesURL": Self.infoString("ACReleaseNotesURL") as Any,
+        "engineMatch": Self.infoString("ArdiaEngineMatch") as Any,
         "isolatedInstance": config.isolated,
         "forceReleaseNotes": config.instanceFlag("releaseNotes"),
         "processStart": Self.processStart as Any,
         "bootTime": Self.bootTime as Any,
         "launchMarks": ArdiaHost.launchMarks,
         "launchedHidden": ArdiaHost.launchedHidden as Any,
+        "launchSource": ArdiaHost.launchSource as Any,
         "loadAverage1m": Self.loadAverage1m as Any,
         "inApplicationsFolder": Self.inApplicationsFolder,
         "updatePrewarm": UserDefaults.standard.dictionary(forKey: UpdatePrewarm.lastRunKey) as Any,

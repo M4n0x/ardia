@@ -1,7 +1,10 @@
 import { GROUP_MEMBERS_PAD_BOTTOM, SIDEBAR_GROUP } from "../../lib/sidebarMetrics";
+import { LIGHTS_CENTER } from "../../state/windows/dockMotion";
 import { layout } from "../ui/theme";
 import { radius } from "../ui/tokens";
 import { profileSwitcher } from "../profiles/tokens";
+import type { ToolbarRow } from "../../lib/toolbarRow";
+import { SCROLL_EDGE } from "./ScrollEdge";
 
 export const LIVE_FOLDER_PAD = 2;
 export const GROUP_INDENT = SIDEBAR_GROUP.indent;
@@ -9,6 +12,8 @@ export const GROUP_BORDER = SIDEBAR_GROUP.border;
 export const GROUP_RADIUS = SIDEBAR_GROUP.radius;
 export const GROUP_INNER_RADIUS = GROUP_RADIUS - GROUP_BORDER;
 export const GROUP_INSET = SIDEBAR_GROUP.inset;
+export const LIVE_FOLDER_BOX_PAD = LIVE_FOLDER_PAD + GROUP_BORDER;
+export const LIVE_FOLDER_HEADER_MARGIN = -LIVE_FOLDER_BOX_PAD;
 export const groupMembersPadBottom = (shown: number) => (shown ? GROUP_MEMBERS_PAD_BOTTOM : 0);
 
 export const SIDEBAR_FIELD = {
@@ -36,3 +41,18 @@ export function listTopGap(fieldOnTop: boolean): number {
 }
 
 export const sidebarHeaderWithField = () => SIDEBAR_FIELD.top + SIDEBAR_FIELD.height;
+
+export function toolbarEdgeLift(header: number, frame: number, row: ToolbarRow): number {
+  const sidebarLine = header + listTopGap(false) - SCROLL_EDGE.inset - SCROLL_EDGE.line;
+  const toolbarLine = frame + row.height - SCROLL_EDGE.line;
+  return Math.max(0, sidebarLine - toolbarLine);
+}
+
+export function sidebarHeaderOf(addressBar: boolean, lightsY: number, fieldOnTop = addressBar): number {
+  if (fieldOnTop) return sidebarHeaderWithField();
+  return addressBar ? layout.sidebarHeader : layout.sidebarHeader - (LIGHTS_CENTER[1] - lightsY);
+}
+
+export function firstRowTopOf(addressBar: boolean, lightsY: number, fieldOnTop = addressBar): number {
+  return sidebarHeaderOf(addressBar, lightsY, fieldOnTop) + listTopGap(fieldOnTop);
+}

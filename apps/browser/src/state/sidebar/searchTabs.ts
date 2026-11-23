@@ -1,14 +1,14 @@
 import { fuzzyScore, hostOf } from "@ardia/core";
 import { useBrowser, type BrowserState } from "../browser/store";
 import { tabTitle } from "../browser/model";
-import type { Tab } from "../browser/types";
+import type { GroupColor, Tab } from "../browser/types";
 import { isPeekTab } from "../peek/peek";
 import { sharedTabsIn, sharesTabs } from "../tabs/tabShare";
 import { inOtherProfile, searchesAllProfiles } from "../tabs/tabsInAllProfiles";
 
 export type Row =
   | { kind: "tab"; id: string; title: string; url: string; favicon: string | null; icon: string | null; where: string | null; current: boolean }
-  | { kind: "closed"; id: string; title: string; url: string; favicon: string | null; icon: string | null; detail: string };
+  | { kind: "closed"; id: string; title: string; url: string; favicon: string | null; icon: string | null; detail: string; group?: { color: GroupColor | null } };
 
 function candidates(s: BrowserState, windowId: string): { open: Row[]; elsewhere: Row[]; closed: Row[] } {
   const w = s.windows[windowId];
@@ -36,6 +36,7 @@ function candidates(s: BrowserState, windowId: string): { open: Row[]; elsewhere
       url: c.tabs[0]?.url ?? "",
       favicon: c.tabs[0]?.favicon ?? null,
       icon: c.group.icon,
+      group: { color: c.group.color ?? null },
       detail: c.tabs.length === 1 ? "Group · 1 tab" : `Group · ${c.tabs.length} tabs`,
       at: c.closedAt,
     })),

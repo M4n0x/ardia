@@ -1,3 +1,4 @@
+import { linkEdits } from "../browser/changes";
 import type { BrowserState } from "../browser/store";
 import { withShownTab } from "../groups/shownTabs";
 import { inPinnedContainer } from "../browser/model";
@@ -81,13 +82,12 @@ function outsideSplit(s: BrowserState, w: BrowserWindow, index: number): number 
   return Math.max(...splitTabIds(split).map((id) => w.tabIds.indexOf(id))) + 1;
 }
 
-export function forgetOpeners(s: BrowserState, windowId: string, keep?: string): BrowserState {
-  const w = s.windows[windowId];
-  const ids = w?.tabIds.filter((id) => id !== keep && s.tabs[id]?.openerId);
+export function forgetOpeners(s: BrowserState, windowId: string, profileId: string): BrowserState {
+  const ids = s.windows[windowId]?.tabIds.filter((id) => s.tabs[id]?.openerId && s.tabs[id]!.profileId === profileId);
   if (!ids?.length) return s;
   const tabs = { ...s.tabs };
   for (const id of ids) tabs[id] = { ...tabs[id]!, openerId: null };
-  return { ...s, tabs };
+  return { ...s, tabs: linkEdits(tabs, s.tabs, ids) };
 }
 
 export function switchKeepsOpeners(s: BrowserState, from: string, to: string): boolean {

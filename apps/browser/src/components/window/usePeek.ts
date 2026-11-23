@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Animated, AppState } from "react-native";
-import { easeInOutCubic } from "./dockMotion";
-import { curve, duration, spring } from "../ui/motion";
-import { ARC_PEEK_OUT_MS, ARC_PEEK_SPRING } from "./tokens";
+import { easeInOutCubic, easeOutCubic, PEEK_CLOSE_DELAY_MS } from "./dockMotion";
+import { curve, duration } from "../ui/motion";
+import { ARC_PEEK_OUT_MS, PEEK_IN_MS } from "./tokens";
 import { backgroundInstance } from "../../state/app/appSettings";
+import { consentToken, type ConsentToken } from "../../state/telemetry/client";
+import { noteSidebarPeekPastTarget } from "../../state/telemetry/dockCounts";
 
 const SLIDE_MS = duration.base;
-const HIDE_DELAY_MS = 120;
-const ARC_IN = spring(ARC_PEEK_SPRING);
 const appInFront = () => backgroundInstance || AppState.currentState === "active";
 
 export function usePeek(
@@ -24,15 +24,17 @@ export function usePeek(
   const heldBack = useRef(false);
   const out = useRef(false);
   const waitingForFocus = useRef(false);
+  const reveal = useRef<{ consent: ConsentToken | null; pastTarget: boolean } | null>(null);
   const animate = (to: number, done?: () => void) =>
-    (arc
-      ? to > 0
-        ? Animated.spring(slide, { toValue: to, ...ARC_IN, restDisplacementThreshold: 0.001, restSpeedThreshold: 0.01, useNativeDriver: true })
-        : Animated.timing(slide, { toValue: to, duration: ARC_PEEK_OUT_MS, easing: easeInOutCubic, useNativeDriver: true })
-      : Animated.timing(slide, { toValue: to, duration: SLIDE_MS, easing: curve.enter, useNativeDriver: true })
+    (to > 0
+      ? Animated.timing(slide, { toValue: to, duration: PEEK_IN_MS, easing: easeOutCubic, useNativeDriver: true })
+      : arc
+        ? Animated.timing(slide, { toValue: to, duration: ARC_PEEK_OUT_MS, easing: easeInOutCubic, useNativeDriver: true })
+        : Animated.timing(slide, { toValue: to, duration: SLIDE_MS, easing: curve.enter, useNativeDriver: true })
     ).start(({ finished }) => finished && done?.());
   const slideOut = () => {
     out.current = false;
+    reveal.current = null;
     setLeaving(true);
     onSlideOut();
     animate(0, () => {
@@ -49,7 +51,10 @@ export function usePeek(
       return;
     }
     waitingForFocus.current = false;
-    if (!out.current) onOpen(live);
+    if (!out.current) {
+      reveal.current = { consent: consentToken(), pastTarget: false };
+      onOpen(live);
+    }
     out.current = true;
     setLeaving(false);
     setLive(true);
@@ -58,18 +63,35 @@ export function usePeek(
   const cancelPending = (pointerStillAtEdge = false) => {
     waitingForFocus.current &&= pointerStillAtEdge;
   };
-  const hide = () => {
+  const hide = (now = false) => {
     clearTimeout(hideTimer.current);
     if (!out.current) return cancelPending();
     hideTimer.current = setTimeout(() => {
       heldBack.current = held();
       if (!heldBack.current) slideOut();
-    }, HIDE_DELAY_MS);
+    }, now ? 0 : PEEK_CLOSE_DELAY_MS);
   };
   const recheck = () => {
     if (!heldBack.current || held()) return;
     heldBack.current = false;
     hide();
+  };
+  const reset = () => {
+    clearTimeout(hideTimer.current);
+    slide.stopAnimation();
+    slide.setValue(0);
+    out.current = false;
+    reveal.current = null;
+    heldBack.current = false;
+    waitingForFocus.current = false;
+    setLive(false);
+    setLeaving(false);
+  };
+  const sampleSlide = (value: number) => {
+    const shown = reveal.current;
+    if (!shown || shown.pastTarget || value <= 1) return;
+    shown.pastTarget = true;
+    noteSidebarPeekPastTarget(shown.consent);
   };
   const latestShow = useRef(show);
   latestShow.current = show;
@@ -84,5 +106,5 @@ export function usePeek(
     if (live) slideOut();
   }, [enabled]);
   useEffect(() => () => clearTimeout(hideTimer.current), []);
-  return { slide, live, leaving, show, hide, recheck, cancelPending };
+  return { slide, live, leaving, show, hide, recheck, cancelPending, reset, sampleSlide };
 }

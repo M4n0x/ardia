@@ -3,17 +3,17 @@ import { test } from "node:test";
 const { useBrowser } = await import("../browser/store.ts");
 const { tabsShownIn } = await import("../browser/model.ts");
 const { menuState } = await import("../commands/menuState.ts");
-const { sidebarMenuItems } = await import("../sidebar/sidebarMenu.ts");
+const { browserLayoutItems } = await import("../sidebar/sidebarMenu.ts");
 const { flushPersistence, loadSession, parseSession, startPersistence } = await import("../session/persist.ts");
 const { SESSION_DOCUMENT } = await import("../session/sessionDocument.ts");
 const { noteScroll, useToolbarAutoHide } = await import("./toolbarAutoHide.ts");
-const { takeAutoHideTabsChoices } = await import("../telemetry/autoHideTabsChoices.ts");
+const { takeAutoHideTabsChoices, takeTornOffWindowsKeptAutoHide } = await import("../telemetry/autoHideTabsChoices.ts");
 const stub = await import("../../test-native/index.ts");
 
 const S = () => useBrowser.getState();
 const shown = (id) => tabsShownIn(S(), id);
 const menuChecked = () => menuState(S()).checked.includes("toggleSidebar");
-const sidebarMenuChecked = (id) => !!sidebarMenuItems(S(), id).find((item) => item.id === "autoHide")?.checked;
+const sidebarMenuChecked = (id) => !!browserLayoutItems(S(), id).find((item) => item.id === "layout:autoHide")?.checked;
 const everySurface = (ids) => ({ setting: S().settings.autoHideTabs, windows: ids.map(shown), menu: menuChecked(), sidebarMenu: ids.map(sidebarMenuChecked) });
 const allShown = (ids) => ({ setting: false, windows: ids.map(() => true), menu: false, sidebarMenu: ids.map(() => false) });
 const allHidden = (ids) => ({ setting: true, windows: ids.map(() => false), menu: true, sidebarMenu: ids.map(() => true) });
@@ -92,6 +92,7 @@ test("with auto-hide off, scrolling a page, switching tabs and closing a tab nev
 
 test("scrolling tucks the toolbar away only while its own setting is on, and never touches the tabs", () => {
   const w = fresh();
+  S().updateSettings({ hideToolbarWhileScrolling: true });
   const tabId = S().windows[w].tabIds[0];
   const tucked = () => !!useToolbarAutoHide.getState().scrolledDown[tabId];
   noteScroll(tabId, "down");
@@ -104,6 +105,26 @@ test("scrolling tucks the toolbar away only while its own setting is on, and nev
   S().updateSettings({ hideToolbarWhileScrolling: true, autoHideTabs: true });
   noteScroll(tabId, "down");
   assert.equal(tucked(), true, "hidden tabs don't stop the toolbar tucking");
+});
+
+test("tabs moved or dragged out of a window into a new one keep that window's hidden or shown tabs (#780)", () => {
+  const a = fresh();
+  const tabs = [S().newTab(a, { url: "https://second.example" }), S().newTab(a, { url: "https://third.example" }), S().newTab(a, { url: "https://fourth.example" })];
+  S().toggleSidebar(a);
+  takeTornOffWindowsKeptAutoHide();
+  const moved = S().moveTabsToWindow([tabs[0]], null);
+  assert.equal(shown(moved), false, "Move to New Window");
+  const dropped = S().createWindow({ profileId: "default", tabIds: [tabs[1]], frame: [800, 0, 1200, 800] });
+  assert.equal(shown(dropped), false, "dragged out onto another screen");
+  assert.equal(S().settings.autoHideTabs, false, "the setting stays as it was");
+  assert.equal(shown(S().createWindow()), true, "a new window with no tabs of its own still follows the setting");
+  assert.equal(takeTornOffWindowsKeptAutoHide(), 2);
+  S().updateSettings({ autoHideTabs: true });
+  const b = S().createWindow();
+  S().toggleSidebar(b);
+  const back = S().moveTabsToWindow([S().newTab(b, { url: "https://fifth.example" })], null);
+  assert.equal(shown(back), true, "a window showing its tabs against the setting hands that on too");
+  assert.equal(shown(S().moveTabsToWindow([tabs[2]], null)), false, "a window in line with the setting hands on the setting");
 });
 
 test("Little Ardia has no tabs to hide and leaves the setting alone", () => {
@@ -207,10 +228,11 @@ test("the toggle count is this Mac's choices: ⌘S and Settings count, a value a
   assert.equal(takeAutoHideTabsChoices(), 0);
 });
 
-test("a saved session that disagreed with the setting is written back in line at launch, before anything else changes", () => {
+test("a saved session that disagreed with the setting is written back in line at launch, before anything else changes", async () => {
   stub.docs.clear();
   stub.docs.set(SESSION_DOCUMENT, session({ tabLayout: "top", autoHideTabs: false }, [false, true]));
   const stop = startPersistence();
+  await new Promise((resolve) => setTimeout(resolve, 0));
   flushPersistence();
   const saved = JSON.parse(stub.docs.get(SESSION_DOCUMENT));
   assert.deepEqual(saved.windows.map((w) => w.sidebarOpen), [true, true]);
