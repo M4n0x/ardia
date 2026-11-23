@@ -1,6 +1,6 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 import { Animated, StyleSheet, View } from "react-native";
-import { DockSelection, radius, Surface } from "../ui";
+import { DockSelection, HoverFill, HoverSwap, radius, Surface, Text, withAlpha } from "../ui";
 import { hex, layout, useTheme } from "../ui/theme";
 import { useTileTheme, type TileTheme } from "../../state/favicons/tileTheme";
 import { useTab } from "../../state/browser/hooks";
@@ -9,17 +9,66 @@ import { SLIDE } from "../tabstrip/tokens";
 import { TabBadges } from "../media/TabBadges";
 import { TabIcon } from "./TabIcon";
 import { sidebarTokens, TILE_GLOW, TILE_RIM, useSidebarTokens } from "./tokens";
+import { useSelectedTopApp } from "../../state/app/theme";
+import type { Settings } from "../../state/settings/settings";
+import { useQuietRows } from "./rowLook";
+import { useIsSleeping } from "../../state/tabs/sleepingTabs";
+import { tileLetterOf } from "../../lib/tileLetter";
+import { useTabState } from "../../state/tabs/tabStateWatch";
+import { isClosedTopApp } from "../../state/sidebar/rowState";
 
 const SELECTION_STROKE = 3;
 const GLASS_RING = 2;
 
 type FaceState = { width: number; active: boolean; selected: boolean; hovered: boolean; pressed: boolean };
+type TopAppLook = Settings["selectedTopApp"];
 
 export const TileFace = memo(function TileFace({ tabId, badge, ...state }: FaceState & { tabId: string; badge?: ReactNode }) {
+  return useQuietRows() ? <LetterTile tabId={tabId} badge={badge} {...state} /> : <RichTileFace tabId={tabId} badge={badge} {...state} />;
+});
+
+const LETTER_SCALE = 12 / 34;
+const ASLEEP_LETTER = 0.45;
+
+function LetterTile({ tabId, badge, width, active, selected, hovered, pressed }: FaceState & { tabId: string; badge?: ReactNode }) {
+  const theme = useTheme();
+  const tokens = useSidebarTokens();
+  const url = useTab(tabId, (t) => t?.url ?? "");
+  const title = useTab(tabId, (t) => t?.customTitle ?? t?.title ?? "");
+  const asleep = useIsSleeping(tabId);
+  const height = layout.pinnedHeight;
+  return (
+    <View
+      accessibilityLabel={title}
+      style={{
+        width,
+        height,
+        borderRadius: radius.pinned,
+        borderWidth: selected && !active ? 1 : 0,
+        borderColor: tokens.dragBorder,
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <HoverSwap shown={!active && (pressed || hovered || selected)} instant={active || selected} rest={active ? tokens.quietTileLive : tokens.quietTile} color={pressed ? tokens.quietPressed : tokens.quietWash} radius={radius.pinned} underBorder={selected && !active ? 1 : 0} />
+      <View>
+        <Text size="small" weight="medium" style={{ fontSize: Math.round(Math.min(width, height) * LETTER_SCALE * 2) / 2, opacity: asleep && !active ? ASLEEP_LETTER : 1 }} color={hex(withAlpha(theme.textTab, active ? tokens.quietActiveText : tokens.quietText))}>
+          {tileLetterOf(url, title)}
+        </Text>
+        <TabBadges tabId={tabId} />
+      </View>
+      {badge}
+    </View>
+  );
+}
+
+const RichTileFace = memo(function RichTileFace({ tabId, badge, ...state }: FaceState & { tabId: string; badge?: ReactNode }) {
   const theme = useTheme();
   const tab = useTab(tabId);
   const tileTheme = useTileTheme(tab?.url ?? "", tab?.favicon, tab?.customIcon, tab?.profileId ?? "");
   const glass = useGlass();
+  const topApp = useSelectedTopApp();
+  const closed = useTabState(tabId, (s) => isClosedTopApp(s, tabId));
   if (!tab) return null;
   const { width, active } = state;
   const icon = (
@@ -30,7 +79,7 @@ export const TileFace = memo(function TileFace({ tabId, badge, ...state }: FaceS
   );
   if (glass)
     return (
-      <GlassTile {...state} tileTheme={tileTheme}>
+      <GlassTile {...state} tileTheme={tileTheme} topApp={topApp} bare={closed}>
         {icon}
         {badge}
       </GlassTile>
@@ -44,11 +93,12 @@ export const TileFace = memo(function TileFace({ tabId, badge, ...state }: FaceS
         fill={tileTheme.theme.kind === "template" ? tileTheme.theme.fill : undefined}
         stroke={tileTheme.theme.kind === "template" ? tileTheme.theme.stroke : undefined}
         cornerRadius={radius.pinned}
-        strokeWidth={SELECTION_STROKE}
+        strokeWidth={topApp === "fill" ? 0 : SELECTION_STROKE}
+        outline={topApp === "outline"}
         dark={theme.dark}
         style={{ width, height: layout.pinnedHeight, alignItems: "center", justifyContent: "center" }}
       >
-        {tileTheme.theme.kind === "template" ? (
+        {tileTheme.theme.kind === "template" && topApp !== "outline" ? (
           <View>
             <View style={{ width: 16, height: 16 }} />
             <TabBadges tabId={tabId} />
@@ -58,6 +108,13 @@ export const TileFace = memo(function TileFace({ tabId, badge, ...state }: FaceS
         )}
         {badge}
       </DockSelection>
+    );
+  if (active && topApp !== "ring")
+    return (
+      <PlainSelectedTile width={width} outline={topApp === "outline"}>
+        {icon}
+        {badge}
+      </PlainSelectedTile>
     );
   if (active)
     return (
@@ -87,31 +144,24 @@ export const TileFace = memo(function TileFace({ tabId, badge, ...state }: FaceS
       </Surface>
     );
   return (
-    <RestingTile {...state}>
+    <RestingTile {...state} bare={closed}>
       {icon}
       {badge}
     </RestingTile>
   );
 });
 
-export function RestingTile({ width, selected, hovered, pressed, children }: Omit<FaceState, "active"> & { children: ReactNode }) {
+function PlainSelectedTile({ width, outline, children }: { width: number; outline: boolean; children: ReactNode }) {
   const theme = useTheme();
-  const tokens = useSidebarTokens();
-  if (useGlass())
-    return (
-      <GlassTile width={width} active={false} selected={selected} hovered={hovered} pressed={pressed} tileTheme={null}>
-        {children}
-      </GlassTile>
-    );
   return (
     <View
       style={{
         width,
         height: layout.pinnedHeight,
         borderRadius: radius.pinned,
-        borderWidth: selected ? 1 : StyleSheet.hairlineWidth,
-        borderColor: selected ? tokens.dragBorder : theme.pinnedRestingStroke,
-        backgroundColor: pressed ? theme.tabPressed : hovered || selected ? theme.tabHover : theme.pinnedResting,
+        borderWidth: outline ? SELECTION_STROKE : 0,
+        borderColor: theme.pinnedSelectedFill,
+        backgroundColor: outline ? undefined : theme.pinnedSelectedFill,
         alignItems: "center",
         justifyContent: "center",
       }}
@@ -121,12 +171,60 @@ export function RestingTile({ width, selected, hovered, pressed, children }: Omi
   );
 }
 
-function GlassTile({ width, active, selected, hovered, pressed, tileTheme, children }: FaceState & { tileTheme: TileTheme | null; children: ReactNode }) {
+export function RestingTile({ width, selected, hovered, pressed, bare = false, children }: Omit<FaceState, "active"> & { bare?: boolean; children: ReactNode }) {
   const theme = useTheme();
   const tokens = useSidebarTokens();
+  const quiet = useQuietRows();
+  const glass = useGlass();
+  if (quiet)
+    return (
+      <View
+        style={{
+          width,
+          height: layout.pinnedHeight,
+          borderRadius: radius.pinned,
+          borderWidth: selected ? 1 : 0,
+          borderColor: tokens.dragBorder,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <HoverSwap shown={pressed || hovered || selected} instant={selected} rest={tokens.quietTile} color={pressed ? tokens.quietPressed : tokens.quietWash} radius={radius.pinned} underBorder={selected ? 1 : 0} />
+        {children}
+      </View>
+    );
+  if (glass)
+    return (
+      <GlassTile width={width} active={false} selected={selected} hovered={hovered} pressed={pressed} tileTheme={null} bare={bare}>
+        {children}
+      </GlassTile>
+    );
+  if (bare && !selected && !hovered && !pressed) return <View style={{ width, height: layout.pinnedHeight, alignItems: "center", justifyContent: "center" }}>{children}</View>;
+  return (
+    <View
+      style={{
+        width,
+        height: layout.pinnedHeight,
+        borderRadius: radius.pinned,
+        borderWidth: selected ? 1 : StyleSheet.hairlineWidth,
+        borderColor: selected ? tokens.dragBorder : theme.pinnedRestingStroke,
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <HoverSwap shown={pressed || hovered || selected} instant={selected} rest={theme.pinnedResting} color={pressed ? theme.tabPressed : theme.tabHover} radius={radius.pinned} underBorder={selected ? 1 : StyleSheet.hairlineWidth} />
+      {children}
+    </View>
+  );
+}
+
+function GlassTile({ width, active, selected, hovered, pressed, tileTheme, topApp = "ring", bare = false, children }: FaceState & { tileTheme: TileTheme | null; topApp?: TopAppLook; bare?: boolean; children: ReactNode }) {
+  const theme = useTheme();
+  const tokens = useSidebarTokens();
+  if (bare && !active && !selected && !hovered && !pressed) return <View style={{ width, height: layout.pinnedHeight, alignItems: "center", justifyContent: "center" }}>{children}</View>;
   return (
     <View style={{ width, height: layout.pinnedHeight }}>
-      <GlassFill radius={radius.pinned} state={pressed ? "pressed" : active ? "active" : hovered || selected ? "lit" : "rest"}>
+      <GlassFill radius={radius.pinned} state={pressed ? "pressed" : active && topApp !== "outline" ? "active" : hovered || selected ? "lit" : "rest"}>
         {active ? (
           <DockSelection
             image={tileTheme?.image}
@@ -134,15 +232,19 @@ function GlassTile({ width, active, selected, hovered, pressed, tileTheme, child
             theme={tileTheme?.theme.kind}
             fill={tileTheme?.theme.kind === "template" ? tileTheme.theme.fill : undefined}
             cornerRadius={radius.pinned}
-            strokeWidth={GLASS_RING}
+            strokeWidth={topApp === "fill" ? 0 : GLASS_RING}
+            outline={topApp === "outline"}
             dark={theme.dark}
             glass
             colorRing
             style={StyleSheet.absoluteFill}
           />
-        ) : selected ? (
-          <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: radius.pinned, borderWidth: 1, borderColor: tokens.dragBorder }]} />
-        ) : null}
+        ) : (
+          <>
+            <HoverFill shown={hovered || selected || pressed} instant={selected} color={pressed ? theme.tabPressed : theme.tabHover} radius={radius.pinned} />
+            {selected ? <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: radius.pinned, borderWidth: 1, borderColor: tokens.dragBorder }]} /> : null}
+          </>
+        )}
         {children}
       </GlassFill>
     </View>
@@ -170,7 +272,7 @@ export function FolderDropRing({ on }: { on: boolean }) {
         bottom: -RING_OUTSET,
         borderRadius: radius.pinned + RING_OUTSET,
         borderWidth: 2,
-        borderColor: theme.accent,
+        borderColor: sidebarTokens(theme).dropMark,
         backgroundColor: sidebarTokens(theme).folderDropFill,
         opacity: shown,
         transform: [{ scale: shown.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1] }) }],

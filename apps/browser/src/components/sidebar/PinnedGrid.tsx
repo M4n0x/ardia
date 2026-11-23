@@ -1,10 +1,11 @@
 import { memo, useMemo } from "react";
 import { Animated, View } from "react-native";
 import { radius, Symbol } from "../ui";
-import { GlassGroup, useGlass } from "../ui/Glass";
+import { GlassGroup } from "../ui/Glass";
 import { layout, useTheme } from "../ui/theme";
 import { useSidebarField } from "../../state/sidebar/chrome";
-import { listTopGap } from "./geometry";
+import { useAddressBarInSidebar, useToolbarLightsCenter } from "../../state/windows/layout";
+import { firstRowTopOf, listTopGap } from "./geometry";
 import { useIsActiveTab, useSettings, useTab, useWindowId } from "../../state/browser/hooks";
 import { useIsSelected } from "../../state/pins/hooks";
 import { NextMeetingBadge } from "../live/NextMeetingBadge";
@@ -78,23 +79,25 @@ export function PinFieldZone({ top, height }: { top: number; height: number }) {
         borderRadius: radius.chrome,
         borderWidth: active ? 1.5 : 1,
         borderStyle: "dashed",
-        borderColor: active ? theme.accent : tokens.dragBorder,
+        borderColor: active ? tokens.dropMark : tokens.dragBorder,
         backgroundColor: tokens.dragSilhouette,
         alignItems: "center",
         justifyContent: "center",
       }}
     >
-      <PinGlyph color={active ? theme.accent : theme.textSecondary} />
+      <PinGlyph color={active ? tokens.dropMark : theme.textSecondary} />
     </View>
   );
 }
 
-export function PinSlotZone() {
+export function PinSlotZone({ top = 0 }: { top?: number }) {
   const theme = useTheme();
+  const tokens = useSidebarTokens();
   const controller = useDragController();
   const active = useDropPins();
   const gap = controller?.items.get(tailKey("tiles"))?.gap;
   const opacity = gap ? gap.interpolate({ inputRange: [0, pinSlotPitch()], outputRange: [0, 1], extrapolate: "clamp" }) : active ? 1 : 0;
+  const firstRowTop = firstRowTopOf(useAddressBarInSidebar(), useToolbarLightsCenter()[1], false);
   return (
     <>
       <View
@@ -108,7 +111,7 @@ export function PinSlotZone() {
           left: layout.sidebarInset,
           right: layout.sidebarInset,
           top: 0,
-          height: active ? layout.pinnedTop + layout.pinnedHeight : layout.pinnedTop - layout.rowGap,
+          height: top + (active ? firstRowTop + layout.pinnedHeight : firstRowTop - layout.rowGap),
         }}
       />
       <Animated.View
@@ -117,19 +120,19 @@ export function PinSlotZone() {
           position: "absolute",
           left: layout.sidebarInset,
           right: layout.sidebarInset,
-          top: layout.pinnedTop,
+          top: top + firstRowTop,
           height: layout.pinnedHeight,
           opacity,
           borderRadius: radius.pinned,
           borderWidth: 1.5,
           borderStyle: "dashed",
-          borderColor: theme.accent,
+          borderColor: tokens.dropMark,
           backgroundColor: theme.dropZoneFill,
           alignItems: "center",
           justifyContent: "center",
         }}
       >
-        <PinGlyph color={theme.accent} />
+        <PinGlyph color={tokens.dropMark} />
       </Animated.View>
     </>
   );
@@ -148,7 +151,6 @@ const PinnedTile = memo(function PinnedTile({ tabId, width, sliding, x, y }: { t
   const { wrapper, handle, dragging } = useDragItem(entryKey("tab", tabId), { kind: "tile", tabIds: [tabId], section: "tiles" });
   const target = useFolderTarget(entryKey("tab", tabId));
   const position = useSlotPosition(x, y, width, sliding, dragging);
-  const glass = useGlass();
   const overlays = useMemo(
     () => (
       <>
@@ -168,12 +170,12 @@ const PinnedTile = memo(function PinnedTile({ tabId, width, sliding, x, y }: { t
         {...hoverProps}
         onDoubleClick={() => returnShownTabToPinnedUrl(windowId, tabId)}
       >
-        <TabPressArea windowId={windowId} tab={tab}>
+        <TabPressArea windowId={windowId} tab={tab} selected={selected}>
           {({ pressed }) => (
-            <TileFace tabId={tabId} width={width} active={active} selected={selected} hovered={hovered} pressed={pressed} badge={glass ? overlays : undefined} />
+            <TileFace tabId={tabId} width={width} active={active} selected={selected} hovered={hovered} pressed={pressed} />
           )}
         </TabPressArea>
-        {glass ? null : overlays}
+        {overlays}
       </View>
     </Animated.View>
   );

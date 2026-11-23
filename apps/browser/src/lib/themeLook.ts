@@ -7,19 +7,22 @@ export const WEIGHTS = { regular: "400", medium: "500", semibold: "600", bold: "
 export const RADII = { none: 0, hair: 2, control: 4, tile: 8, panel: 12, sheet: 16, hero: 20, chrome: 10, toolbar: 7, pinned: 10 } as const;
 export const ROW_METRICS = { rowHeight: 34, rowGap: 3, pinnedHeight: 41 } as const;
 export const MONO_FAMILY = "Menlo";
+export const SIDEBAR_TEXT_SIZES = ["default", "large", "larger"] as const;
+export type SidebarTextSize = (typeof SIDEBAR_TEXT_SIZES)[number];
+const SIDEBAR_TEXT_SCALE: Record<SidebarTextSize, number> = { default: 1, large: 15 / 13, larger: 17 / 13 };
 
 export type TypeSizeName = keyof typeof TYPE_SIZES;
-export type WeightName = keyof typeof WEIGHTS;
+type WeightName = keyof typeof WEIGHTS;
 export type FontWeight = "100" | "200" | "300" | "400" | "500" | "600" | "700" | "800" | "900";
-export type RadiusName = keyof typeof RADII;
-export type RowMetrics = { -readonly [K in keyof typeof ROW_METRICS]: number };
+type RadiusName = keyof typeof RADII;
+type RowMetrics = { -readonly [K in keyof typeof ROW_METRICS]: number };
 
-export const CHROME_PARTS = ["pinned", "newTab", "addressField", "navButtons", "sidebarButton", "downloads", "profile"] as const;
+const CHROME_PARTS = ["pinned", "newTab", "addressField", "navButtons", "sidebarButton", "downloads", "profile"] as const;
 export type ChromePart = (typeof CHROME_PARTS)[number];
-export const PLACES = ["top", "bottom"] as const;
+const PLACES = ["top", "bottom"] as const;
 export type Place = (typeof PLACES)[number];
 
-export const THEME_RADII = { row: "chrome", pinned: "pinned", tile: "tile", control: "control", toolbar: "toolbar", panel: "panel", sheet: "sheet" } as const satisfies Record<string, RadiusName>;
+const THEME_RADII = { row: "chrome", pinned: "pinned", tile: "tile", control: "control", toolbar: "toolbar", panel: "panel", sheet: "sheet" } as const satisfies Record<string, RadiusName>;
 type ThemeRadius = keyof typeof THEME_RADII;
 
 export type ThemeLook = {
@@ -29,6 +32,7 @@ export type ThemeLook = {
   readonly weights: Readonly<Record<WeightName, FontWeight>>;
   readonly metrics: Readonly<RowMetrics>;
   readonly sidebarWidth: number | null;
+  readonly sidebarScale: number;
   readonly radii: Readonly<Record<RadiusName, number>>;
   readonly hidden: ReadonlySet<ChromePart>;
   readonly addressField: Place;
@@ -42,7 +46,7 @@ type Fields = { [key: string]: unknown };
 const FONT_WEIGHTS: readonly FontWeight[] = ["100", "200", "300", "400", "500", "600", "700", "800", "900"];
 export const SYMBOL_PATTERN = "^[a-z0-9]+(\\.[a-z0-9]+)*$";
 const SYMBOL = new RegExp(SYMBOL_PATTERN);
-export const FAMILY_PATTERN = "^\\S(.{0,62}\\S)?$";
+const FAMILY_PATTERN = "^\\S(.{0,62}\\S)?$";
 const FAMILY = new RegExp(FAMILY_PATTERN);
 
 type Spec =
@@ -239,6 +243,7 @@ export const DEFAULT_LOOK: ThemeLook = {
   weights: { ...WEIGHTS },
   metrics: { ...ROW_METRICS },
   sidebarWidth: null,
+  sidebarScale: 1,
   radii: DEFAULT_RADII,
   hidden: new Set(),
   addressField: "top",
@@ -268,6 +273,7 @@ export function resolveLook(blocks: LookBlocks | null | undefined): ThemeLook {
       pinnedHeight: numberOr(metrics.pinnedHeight, ROW_METRICS.pinnedHeight),
     },
     sidebarWidth: typeof metrics.sidebarWidth === "number" ? metrics.sidebarWidth : null,
+    sidebarScale: 1,
     radii,
     hidden: new Set(Array.isArray(layout.hide) ? (layout.hide as ChromePart[]) : []),
     addressField: layout.addressField === "bottom" ? "bottom" : "top",
@@ -276,7 +282,23 @@ export function resolveLook(blocks: LookBlocks | null | undefined): ThemeLook {
   };
 }
 
-export type LookUse = { type: boolean; metrics: boolean; layout: boolean; icons: boolean; hidden: number; moved: number; iconOverrides: number };
+const sidebarLooks = new WeakMap<ThemeLook, Map<SidebarTextSize, ThemeLook>>();
+
+export function withSidebarText(look: ThemeLook, size: SidebarTextSize): ThemeLook {
+  const scale = SIDEBAR_TEXT_SCALE[size] ?? 1;
+  if (scale === 1) return look;
+  let bySize = sidebarLooks.get(look);
+  if (!bySize) sidebarLooks.set(look, (bySize = new Map()));
+  let scaled = bySize.get(size);
+  if (!scaled) {
+    const { rowHeight, rowGap, pinnedHeight } = look.metrics;
+    scaled = { ...look, sidebarScale: scale, metrics: { rowHeight: Math.round(rowHeight * scale), rowGap: Math.round(rowGap * scale), pinnedHeight: Math.round(pinnedHeight * scale) } };
+    bySize.set(size, scaled);
+  }
+  return scaled;
+}
+
+type LookUse = { type: boolean; metrics: boolean; layout: boolean; icons: boolean; hidden: number; moved: number; iconOverrides: number };
 
 export function lookUse(blocks: LookBlocks | null | undefined): LookUse {
   const look = resolveLook(blocks);

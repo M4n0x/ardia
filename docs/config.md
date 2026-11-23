@@ -5,17 +5,29 @@ Ardia can be set up from plain files, dotfiles style, and from the `ardia` comma
 ## Where
 
 The config folder is `~/.config/ardia/`. An instance started with `ARDIA_DATA_DIR` uses `<data dir>/config` instead,
-so test instances never read the owner's files. No other environment variable picks it (a Finder-launched app never
-sees the shell's `XDG_CONFIG_HOME`, so honouring it would make the app and the CLI disagree). The app resolves it in
-`ArdiaLaunchConfig`; the CLI resolves it the same way from `--data-dir` / `$ARDIA_DATA_DIR`.
+so test instances never read the owner's files. On macOS no other environment variable picks it (a Finder-launched app
+never sees the shell's `XDG_CONFIG_HOME`, so honouring it would make the app and the CLI disagree). The app resolves it
+in `ArdiaLaunchConfig`; the CLI resolves it the same way from `--data-dir` / `$ARDIA_DATA_DIR`.
+
+Linux is the exception, because there the folder hangs off Chromium's own user data dir, and Chromium already picks
+that from `XDG_CONFIG_HOME` (and the engine from `ARDIA_CONFIG_HOME`). The CLI has to follow the same variables just to
+find `ArdiaControl.json`, so honouring them for the config folder adds no new way for the two to disagree.
+`~/.config/ardia` is that data dir (`Local State`, `Default/`, `ArdiaControl.json`…), so the config folder is always
+`<data dir>/config`: `${XDG_CONFIG_HOME:-~/.config}/ardia/config` by default
+(`$ARDIA_CONFIG_HOME/ardia/config` when that's set, as the engine does), `<user data dir>/config` for an instance
+started with `--user-data-dir`, and `<data dir>/config` for the CLI's `--data-dir` / `$ARDIA_DATA_DIR`. Keeping it a
+folder of its own lets a dotfiles repo own it (one symlink) without Chromium's files landing in the repo, and it is
+the same rule a macOS test instance follows. The schemas go to `<data dir>/config-schema/` beside it.
 
 ```
-~/.config/ardia/
+~/.config/ardia/            (Linux: ~/.config/ardia/config/)
   config.json          settings and the theme choice
   hooks.json           automation hooks (docs/automation.md)
   themes/<name>.json   colour overrides
+  plugins/<name>/      plugins (docs/plugins.md)
   config.schema.json   written by the app
   theme.schema.json    written by the app
+  plugin.schema.json   written by the app
 ```
 
 Ardia never creates the folder. `ardia config init` does, or the user does.
@@ -38,16 +50,29 @@ Ardia never creates the folder. `ardia config init` does, or the user does.
   (`apps/browser/src/state/settings/settings.ts`). A test makes every setting either allowlisted or deliberately
   left out, so a new setting never becomes file-writable by accident. Left out, because they grant control, send
   data somewhere or change which engine handles a site: `cliControl`, `allowJavaScriptFromAppleEvents`,
-  `extensionSearchEngines`, `defaultProfileId`, `customSearchUrl`, `customSearchEngines`, `pageEngine`,
-  `websiteEngines`, `protectedVideoInWebKit`. `searchEngine` must name an engine that already exists (built in, or
+  `extensionSearchEngines`, `defaultProfileId`, `customSearchUrl`, `newTabUrl`, `customSearchEngines`, `engineMode`, `pageEngine`,
+  `websiteEngines`, `protectedVideoInWebKit`, `offerWebKitForProtectedVideo`, `engineSwitchKeepsPage`,
+  `engineSwitchAsksAboutUnsavedWork`, `engineSwitchCarriesSiteData`, `webKitFraudWarnings`. `searchEngine` must name an engine that already exists (built in, or
   one the user added in Settings).
+- `interfaceScale` (0.8 to 1.5 in steps of 0.05, default 1; this Mac only, not synced) is Settings › Appearance ›
+  Interface size: it scales the whole app's UI, not web pages, and applies live.
+- `sidebarTextSize` (`default`, `large`, `larger`; this Mac only, not synced) and `sidebarTextContrast` (`auto`
+  follows macOS Increase Contrast, `standard`, `high`) are Settings › Appearance › Sidebar Text. Large and Larger
+  scale the sidebar's text (13 pt titles to 15 and 17), favicons and row metrics, a theme's `metrics` included; the
+  rest of the app keeps its sizes.
 - `shortcuts` maps a command id from the command catalog to one shortcut, written `cmd+shift+t` (modifiers
   `cmd`/`command`, `opt`/`option`/`alt`, `ctrl`/`control`, `shift`, `fn`, then one key: a character, `f1`–`f20`,
   `space`, `tab`, `return`, `escape`, `delete`, `up`, `down`, `left`, `right`, `home`, `end`, `pageup`,
   `pagedown`) or in glyphs (`⌘⇧T`, what `formatShortcut` prints). `""` unbinds the command. A command left out keeps
   whatever it has. Fixed commands can't be rebound. The app translates to its stored form (`[key, ...modifiers]`); a
-  command's own default shortcut drops its override. Each entry stands alone: a bad one is reported and skipped, the
-  others apply.
+  command's own default shortcut drops its override. Each profile also has `switchProfile:<profile id>` and
+  `newLittleArdia:<profile id>` (ids from `ardia call profiles.list`); the file takes them for any id, so a profile
+  made later picks its key up, while `settings.set` refuses an id no profile has. Each entry stands alone: a bad one
+  is reported and skipped, the others apply.
+- `mouseShortcuts` maps a command id to a mouse button in its stored form: `["mouse:middle"]`, `["mouse:4"]` or
+  `["mouse:5"]`, optionally followed by `"control"`, `"option"`, `"shift"`, `"command"`. It sits beside the command's
+  key shortcut (setting one never takes the other), runs only on the Mac for now, and is what Settings › Shortcuts
+  records when you press the middle or a side button over a shortcut field.
 - `launchActions` is a list of up to 20 Ardia command ids (`"newTab"`, or `"selectTab:2"` for a variant) that the app
   runs itself, once per launch, after the session is restored and the first window is up, in the focused window: no
   CLI control and no LaunchAgent needed. `"launchActions": ["newTab"]` keeps your tabs and lands on a new tab.
@@ -58,6 +83,10 @@ Ardia never creates the folder. `ardia config init` does, or the user does.
   Automation. Re-reading config.json never runs them again. The setting isn't synced: it belongs to this Mac.
 - `theme` is a theme name (`^[a-z0-9][a-z0-9_-]*$`, the file `themes/<name>.json`) or `null`. A bad value, or a
   `config.json` that doesn't parse, keeps the theme that is showing.
+- `commandScrollZoom` (⌘-scroll zooms the page), `sidebarMediaControls` (the sidebar's media card and a pinned tab's
+  media controls) and `adaptTextToColor` (an edited theme colour's text follows its colours), all `true` by default, and
+  `bookmarksImportDismissed` have no row in Settings. They keep a choice made in 0.2.46, whose Settings had them (the
+  last as `hideBookmarksBarImport`); this file is the way to change them now.
 - Unknown keys inside `settings` are reported and ignored. Other top-level keys are ignored.
 
 ### Address bar providers
@@ -123,7 +152,7 @@ stays off until that's decided.
 ### The command bar's start
 
 `settings.commandBarStart` sets what a new tab's command bar (⌘T, with New Tab opening the command bar) lists before
-you type. It has no Settings row: plugins (github.com/mantrakp04/ardia-plugins) and people write it here.
+you type. It has no Settings row: plugins (github.com/ardia-browser/plugins) and people write it here.
 
 ```json
 "commandBarStart": { "openTabs": { "hidePinned": true, "hideTopApps": true, "limit": 5 } }
@@ -136,6 +165,31 @@ you type. It has no Settings row: plugins (github.com/mantrakp04/ardia-plugins) 
 - Code: `state/omnibox/commandBarStart.ts`, used by `useOpenTabsStart` (`components/omnibox/dropdownStart.ts`).
   Telemetry: `settings_snapshot` carries `setting_commandBarStart_hidePinned`, `_hideTopApps` and `_limit` with their
   defaults.
+
+### Press motion and folder style
+
+`settings.pressMotion`, `settings.folderStyle` and `settings.liveFolderIcon` bring back how 0.2.47-nightly.6 felt and looked. They have no
+Settings row: plugins (github.com/ardia-browser/plugins, `nightly6-feel`) and people write them here.
+
+```json
+"pressMotion": "bounce", "folderStyle": "neutral", "liveFolderIcon": "service"
+```
+
+- `pressMotion`: `"still"` (the default) or `"bounce"`. Bounce squishes what you press and springs it back about 13 %
+  past rest, as in 0.2.47-nightly.6 (#2469): sidebar tab rows, group and live folder headers, live items, the New
+  Tab row and folder panel rows to 0.975, pinned tiles, tile folders and top-strip pins to 0.94, an icon button's
+  whole plate to 0.9 and other pressable controls to 0.97, holding the dip at least 90 ms. A New Tab card's lift and
+  a finished live item's check mark settle on `springs.bouncy`. macOS Reduce Motion still turns it off.
+- `folderStyle`: `"profile"` (the default: a folder with no colour of its own takes the profile's colour) or
+  `"neutral"`, which draws it white in dark mode and #6E6E73 in light mode, as in 0.2.47-nightly.6 (#2250). A
+  coloured group keeps its colour either way.
+- `liveFolderIcon`: `"folder"` (the default) or `"service"`. Service shows a live folder's service icon (GitHub,
+  Notion, …) instead of the folder, as in 0.2.47-nightly.6 (#2250). An icon you picked for the folder wins either way.
+- None of them is synced: they belong to this Mac. A change applies at once.
+- Code: `lib/pressMotion.ts` (the value `components/ui` reads), `useSquish` and `Squish` (`components/ui/Squish.tsx`),
+  `usePressScaleMotion` and `liftSpring` (`components/ui/motion.ts`), `folderPalette` (`components/sidebar/tokens.ts`)
+  and `LiveFolderIcon`. Telemetry: `settings_snapshot` carries `setting_pressMotion`, `setting_folderStyle` and
+  `setting_liveFolderIcon` with their defaults; watch how many installs pick `bounce`, `neutral` and `service`.
 
 ### The file wins
 
@@ -158,12 +212,29 @@ The config folder, `config.json`, `themes/` and theme files may be symlinks (a d
 Ardia reads only regular files (checked after resolving), at most 1 MB, opened non-blocking so a FIFO can't hang the
 watcher. The watcher re-resolves the folder when it changes and notices it appearing after launch.
 
+On Linux the reads and the watcher are native (`ac_linux_config_core.cc`, `ac_linux_config.cc`): reads also refuse
+text that isn't UTF-8, and the watcher is inotify. It watches the resolved folder, the folder of each watched file and
+of its resolved target, `themes/` and its target, and the folder's parent for the folder itself appearing, going or
+being re-linked. It resolves links itself, so every link on the way (`config -> ~/dotfiles/current/ardia`,
+`current -> release-a`) and a link's missing target are watched too: re-linking `current`, or creating the target of a
+dangling theme link, applies at once. Replacing a real directory further up a link's target (renaming
+`~/dotfiles/themes`'s parent aside and putting another in its place) isn't noticed until the next change, as on
+macOS. Events for other files (the schemas, Chromium's files) are ignored. Changes are coalesced for 50 ms
+before every window hears of them, and one watcher serves all windows. The shared code reads synchronously, so each
+window keeps the last reads of `config.json` and its themes; it reads `config.json` and the theme it names before the
+UI starts, and on a change it reads them again (the newly named theme included) before the shared code reconciles.
+Only the launch window applies the file's settings at start, and so restores the session as the file says; a window
+opened later takes the theme but leaves settings changed in the app alone, as on macOS, where opening a window isn't
+a launch.
+
 ### Errors
 
 A file that doesn't parse, an unknown key, a wrong value or a missing theme never breaks anything: Ardia applies what
-is valid, skips the rest (a bad value skips that whole setting), logs it and shows one toast per distinct problem
-("config.json: selectedTabGlow must be full, soft or off"). An unparseable theme file keeps the last good version of
-that theme. `ardia config check` reports the same problems.
+is valid, skips the rest (a bad value skips that whole setting), logs it and shows one toast that sums them up
+("config.json has a problem: selectedTabGlow must be full, soft or off"; past two, "and N more"). The toast stays
+until the file is fixed or you dismiss it; it comes back only for a new problem, waits for another toast (an Undo,
+say) to finish instead of replacing it, and goes away by itself once the files are clean. An unparseable theme file
+keeps the last good version of that theme. `ardia config check` reports the same problems.
 
 ## Themes
 
@@ -264,7 +335,7 @@ and in Ardia's context menus. A name macOS doesn't have draws nothing.
 
 ## Schemas
 
-The app writes `config.schema.json` and `theme.schema.json` (JSON Schema 2020-12) to `<data dir>/config-schema/` at
+The app writes `config.schema.json`, `theme.schema.json` and `plugin.schema.json` (JSON Schema 2020-12) to `<data dir>/config-schema/` at
 every launch, and into the config folder whenever it exists, rewriting only when the content changed (temp file and
 rename, replacing a symlinked schema rather than writing through it). They are generated from the allowlisted
 `SETTING_SPECS` entries (each spec carries its schema; a test checks schema and validator agree on samples and
@@ -312,6 +383,19 @@ so. Exit codes: 0 done, 1 a check failed or the input is wrong.
 - `ardia theme use NAME|none` sets `theme` in `config.json`, creating it first if needed.
 - `ardia theme list [--json]` lists the themes and marks the active one.
 - `ardia theme check [NAME|FILE] [--json]` checks a theme (default: the active one).
+- `ardia theme set KEY VALUE [--theme NAME]` writes one key to the active theme (or NAME), the way `config set`
+  does: VALUE is parsed as JSON, else taken as a string, the whole theme is checked with the new value, and a
+  problem under that key refuses it and leaves the file as it was (problems elsewhere in the file don't block it).
+  KEY is a dotted path whose first part is the block: `dark.accent`, `type.sizes.body`, `metrics.radius.row`,
+  `layout.hide`. Under `icons` everything after `icons.` is one SF Symbol name (`icons.chevron.down`). Missing
+  blocks are created; the file keeps its key order and is rewritten even when the value is unchanged, so a running
+  Ardia re-applies it. With no active theme and no `--theme`, it creates `themes/custom.json` (`$schema` plus the
+  key) and makes it the active theme, saying so on stderr. Without a schema it writes unchecked and says so.
+- `ardia theme get [KEY] [--theme NAME] [--json]` prints one key from the theme, or the whole file. A key the file
+  doesn't set exits 1 with Ardia's default when the schema has one.
+- `ardia theme unset KEY [--theme NAME]` removes the key and the blocks it leaves empty, so Ardia's own value comes
+  back. A key the file doesn't set is a no-op (exit 0). `get` and `unset` exit 1 when no theme is active and no
+  `--theme` is given, and a theme name that doesn't exist names the closest ones.
 
 `set`, `unset` and `theme use` refuse to touch a `config.json` that doesn't parse or whose root or `settings` isn't an
 object. Writes keep the file's key order and other keys, use 2-space indents and a final newline, and go through an

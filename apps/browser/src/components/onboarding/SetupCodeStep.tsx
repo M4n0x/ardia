@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { TextInput, View } from "react-native";
 import { Button, Text } from "../ui";
-import { customizeMore, goToStep } from "../../state/onboarding/onboarding";
+import { goToStep } from "../../state/onboarding/onboarding";
 import { applySetupCodeInOnboarding } from "../../state/presets/actions";
 import { SETUP_CODE_PREFIX } from "../../state/presets/setupCode";
 import { StepLayout } from "./StepLayout";
@@ -11,10 +11,11 @@ import { onboardingButton } from "./tokens";
 import { font, monoFace, proseLineHeight, radius, space } from "../ui/tokens";
 import { ChoiceCard } from "./ChoiceCard";
 import { SetupLines } from "./SetupLines";
+import { keyText } from "../../state/commands/keyText";
 
 const CODE_FIELD_HEIGHT = 44;
 
-const BRINGS = ["Where your tabs and address bar go", "What ⌘T and ⌘L open", "Light or dark, and your color", "The apps you pinned"];
+const BRINGS = ["Where your tabs and address bar go", `What ${keyText("⌘T")} and ${keyText("⌘L")} open`, "Light or dark, and your color", "The apps you pinned"];
 
 export function SetupCodeLink({ onPress }: { onPress: () => void }) {
   return (
@@ -44,8 +45,8 @@ export function SetupCodeStep({ onBack }: { onBack: () => void }) {
         subtitle="Ardia now looks the way you made it on ardia.dev. Search and privacy are still yours to choose, so those come next."
         actions={
           <>
-            <PrimaryButton title="Continue" icon="arrow.right" onPress={() => goToStep("outro")} />
-            <SecondaryButton title="Review Each Step" onPress={customizeMore} />
+            <PrimaryButton title="Continue" icon="arrow.right" onPress={() => goToStep("searchPrivacy")} />
+            <SecondaryButton title="Review Each Step" onPress={() => goToStep("layout")} />
           </>
         }
         preview={<SetupLines heading="From your code:" lines={applied} />}

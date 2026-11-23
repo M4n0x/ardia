@@ -1,4 +1,5 @@
 import AppKit
+import ArdiaCore
 import ExpoModulesCore
 
 public class FocusModule: Module {
@@ -30,7 +31,7 @@ public class FocusModule: Module {
         guard let self else { return }
         FocusHandoff.shared.install()
         self.watchUnclaimedEscape()
-        if let queue = self.appContext?.reactBridge?.uiManager.methodQueue {
+        if let queue = self.appContext?.reactBridge?.uiManager?.methodQueue {
           FocusHandoff.shared.afterPendingUI = { block in queue.async { DispatchQueue.main.async(execute: block) } }
           Self.pendingUIOwner = ObjectIdentifier(self)
         }
@@ -40,7 +41,17 @@ public class FocusModule: Module {
     OnDestroy { self.lifetime.end() }
 
     Function("pressesWithoutRelease") { () -> Int in PressRelease.pressesWithoutRelease }
+    Function("takeFocusHandoffCounts") { () -> [String: [String: Int]] in FocusHandoff.shared.takeOutcomes() }
+    Function("setConsentEpoch") { (epoch: String) in
+      ArdiaEvents.consentEpoch = epoch
+      FocusHandoff.shared.setConsentEpoch(epoch)
+      let setEpoch = NSSelectorFromString("ardia_setConsentEpoch:")
+      if let view = NSClassFromString("RCTView") as AnyObject?, view.responds(to: setEpoch) { _ = view.perform(setEpoch, with: epoch) }
+      PressRelease.forgetPresses()
+    }
     AsyncFunction("pressRepeated") { () -> [String: Any]? in PressRelease.pressRepeated }.runOnQueue(.main)
+    Function("takeEditKeyAcks") { () -> [String: Int] in FocusHandoff.shared.takeEditKeyAcks() }
+    Function("takeInputSourceKeys") { () -> Int in InputSourceKeys.takeWebKitTabKeys() }
     AsyncFunction("cancelFocusMove") { (generation: Int, restoringSource: Bool) in
       FocusHandoff.shared.cancel(generation, restoringSource: restoringSource)
     }.runOnQueue(.main)
@@ -68,13 +79,20 @@ public class FocusModule: Module {
       self.lifetime.run { self.setDragEscapeCapture(active) }
     }.runOnQueue(.main)
 
-    Function("switcherPointerMoved") { [weak self] () -> Bool in self?.switcherPointer.moved(to: NSEvent.mouseLocation) ?? true }
+    Function("takeHoverCounts") { () -> [String: [String: Int]] in
+      let take = NSSelectorFromString("ardia_takeHoverCounts")
+      guard let view = NSClassFromString("RCTView") as AnyObject?, view.responds(to: take),
+        let taken = view.perform(take)?.takeUnretainedValue() as? [String: [String: NSNumber]]
+      else { return [:] }
+      return taken.mapValues { $0.mapValues(\.intValue) }
+    }
+    Function("switcherPointerMoved") { [weak self] () -> Bool in self?.switcherPointer.moved(to: SwitcherPointer.location) ?? true }
   }
 
   private func setSwitcherCapture(_ active: Bool) {
     if let monitor = switcherMonitor { NSEvent.removeMonitor(monitor) }
     switcherMonitor = nil
-    switcherPointer.start(active ? NSEvent.mouseLocation : nil)
+    switcherPointer.start(active ? SwitcherPointer.location : nil)
     guard active else { return }
     let emit: ([String: Any]) -> Void = { ShellEvents.send(.app, $0) }
     switcherMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseUp, .rightMouseUp, .otherMouseUp]) { event in
@@ -87,6 +105,8 @@ public class FocusModule: Module {
       case 53: emit(["type": "switcherKey", "key": "escape"])
       case 124: emit(["type": "switcherKey", "key": "next"])
       case 123: emit(["type": "switcherKey", "key": "previous"])
+      case _ where event.charactersIgnoringModifiers?.lowercased() == "w" && !event.isARepeat && !event.modifierFlags.intersection([.control, .command]).isEmpty:
+        emit(["type": "switcherKey", "key": "close"])
       default: break
       }
       return nil

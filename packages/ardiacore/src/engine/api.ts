@@ -1,34 +1,37 @@
+import type { CleanedUrl } from "@ardia/core";
 import type { AddressInput, SavedAddress, SavedCard } from "../autofill";
-import type { EngineBookmark, BookmarkOp } from "../bookmarks";
 import type { CastDialog, CastRoute, DeviceChooser } from "../media";
-import type { ContentBlockerState, ContentBlockerStats } from "../contentBlocker";
+import type { AddedFilterList, ContentBlockerState, ContentBlockerStats } from "../contentBlocker";
 import type {
   ActionPopupRequest, ActionState, ChromeSearchEngine, ExtensionActionChange, ExtensionInstallPrompt, ExtensionPackage, ExtensionsChange, ExtensionsLoadHealth, ExtensionsSyncApplied, ExtensionsSyncApply,
   ExtensionsSyncState, ExtensionSyncIntent, InstalledExtension, SidePanelRequest, TabsRequest,
 } from "../extensions";
-import type { HistoryChangedBatch, HistoryWireRow } from "../history";
-import type { FaviconImage } from "../favicons";
 import type { Download, DownloadSettings } from "../downloads";
 import type {
-  BatterySaverMode, BatterySaverState, CliControlStatus, CliTabTarget, EngineComponent, EngineInfo, EngineTask, HoverLostEpisode, MemorySaverRequest, MemorySaverState, SystemState,
+  BatterySaverMode, BatterySaverState, ChildProcessCpu, CliControlStatus, CursorRestore, CliTabTarget, EngineComponent, EngineInfo, EngineTask, HoverLostEpisode, MemorySaverRequest, PressLoopLongReport, MemorySaverState, PopupProtectedMedia, SystemState, WindowUnpaintedRecord,
 } from "../engineDomain";
 import type { ExternalAppAllowance, PermissionRequest, PermissionResult } from "../permissions";
 import type { BrowsingDataType } from "../profiles";
 import type { ChromeWindowState } from "../windows";
-import type { PasswordExportStatus, SavedPassword } from "../passwords";
+import type { FieldProviderProfile, PasswordExportStatus, SavedPassword, SystemPanelResult, VerificationCodeSetupResult } from "../passwords";
 import type { ClearSiteDataResult, SiteSettings, SiteSettingType, SiteSettingValue } from "../siteSettings";
-import type { LinkRoute, TabStripCommand, TabStripTransaction } from "../tabs";
-import type { PageCookie, PageEngine, PasskeyAccess } from "../webkit";
-import type { DisplayMediaSource } from "../pageTypes";
+import type { LinkRoute, TabStripCommand, TabStripTransaction, WindowRequest } from "../tabs";
+import type {
+  CookieRemoval, PageCookie, PageEngine, PasskeyAccess, SiteData, SiteDataWritten, StorageChange, StorageItems, WebKitCount,
+} from "../webkit";
+import type { DisplayMediaSource, OpenWindowRequest, WebNotification } from "../pageTypes";
+import type { BookmarksCalls, BookmarksEvents } from "./generated/bookmarks";
+import type { FaviconsCalls, FaviconsEvents } from "./generated/favicons";
+import type { HistoryCalls, HistoryEvents } from "./generated/history";
+import type { Done, Profile } from "./wire";
 
-type Profile = { profile: string };
-type Done = Record<string, never> | null;
-type VideoUpscalingState = { enabled: boolean; lowPower: boolean; thermalPressure: boolean; appActive: boolean; tabs: { tabId: number; allowed: boolean }[] };
+type VideoUpscalingState = { enabled: boolean; lowPower: boolean; thermalPressure: boolean; appActive: boolean; tabs: { tabId: number; allowed: boolean; capturing: boolean }[] };
 
-export type EngineCalls = {
+export type EngineCalls = BookmarksCalls & FaviconsCalls & HistoryCalls & {
   "engine.info": [{}, EngineInfo];
   "engine.components": [{}, EngineComponent[]];
   "engine.tasks": [{}, EngineTask[]];
+  "engine.childProcessCpu": [{}, ChildProcessCpu[]];
   "engine.beginTracing": [{}, boolean];
   "engine.endTracing": [{ keep: boolean }, string | null];
   "engine.isTracing": [{}, boolean];
@@ -79,7 +82,9 @@ export type EngineCalls = {
   "permissions.devExternalLaunches": [{}, Record<string, unknown>[]];
 
   "profiles.loaded": [{}, { profiles: string[] }];
+  "profiles.ctrlTabMru": [{}, { profiles: Record<string, boolean> }];
   "profiles.release": [Profile, null];
+  "profiles.unloadIdle": [Profile, { status: "released" | "pending" | "busy"; tabs: string[]; heldBy?: string }];
   "profiles.deleteData": [Profile, { remaining: string[] }];
   "profiles.clearBrowsingData": [Profile & { types: BrowsingDataType[]; since: number | null }, null];
 
@@ -89,7 +94,12 @@ export type EngineCalls = {
   "sites.reset": [Profile & { origin: string }, null];
   "sites.clearData": [Profile & { origin: string; engine: PageEngine }, ClearSiteDataResult];
   "sites.zoomLevels": [Profile, Record<string, number>];
+  "sites.readStorage": [Profile & { origin: string }, { items: StorageItems | null }];
+  "sites.writeStorage": [Profile & { origin: string; set: StorageItems; remove: string[] }, { written: number }];
+  "sites.registrableDomains": [Profile & { hosts: string[] }, { domains: string[] }];
   "sites.setZoom": [Profile & { host: string; zoom: number }, null];
+  "sites.preloadPages": [Profile, boolean];
+  "sites.setPreloadPages": [Profile & { on: boolean }, null];
 
   "passwords.list": [Profile, { passwords: SavedPassword[] }];
   "passwords.unlock": [Profile, { unlocked: boolean }];
@@ -100,6 +110,12 @@ export type EngineCalls = {
   "passwords.export": [Profile, { status: PasswordExportStatus; path?: string }];
   "passwords.autofillEnabled": [Profile, boolean];
   "passwords.setAutofillEnabled": [Profile & { enabled: boolean }, null];
+  "passwords.setFieldProviders": [{ session: string; generation: number; profiles: FieldProviderProfile[] }, { applied: boolean }];
+  "passwords.showSystemPanel": [{ tab: string; generation?: number }, SystemPanelResult];
+  "passwords.showPanelHint": [{ tab: string; label: string; side: "above" | "below" }, { shown: boolean }];
+  "passwords.systemPanelAvailable": [{}, { chromium: boolean; webkit: boolean }];
+  "passwords.otpauthHandler": [{}, { app: string | null }];
+  "passwords.setUpVerificationCode": [{ tab: string; token: string; generation?: number }, VerificationCodeSetupResult];
 
   "autofill.settings": [Profile, { addresses: boolean; cards: boolean }];
   "autofill.setSettings": [Profile & { addresses?: boolean; cards?: boolean }, null];
@@ -119,20 +135,21 @@ export type EngineCalls = {
   "extensions.reload": [Profile & { id: string }, { ok: true }];
   "extensions.configure": [Profile & { id: string; options: Record<string, unknown> }, { ok: true }];
   "extensions.chooseFolder": [{}, string | null];
-  "extensions.resolveInstallPrompt": [{ requestId: string; accepted: boolean }, null];
-  "extensions.actionStates": [{ tabId: string; ids: string[] }, Record<string, ActionState>];
-  "extensions.sidePanelUrl": [{ tabId: string; extensionId: string }, string | null];
+  "extensions.resolveInstallPrompt": [Profile & { requestId: string; accepted: boolean }, null];
+  "extensions.actionStates": [Profile & { tabId: string; ids: string[] }, Record<string, ActionState>];
+  "extensions.sidePanelUrl": [Profile & { tabId: string; extensionId: string }, string | null];
   "extensions.watchActions": [Profile, Done];
   "extensions.syncState": [Profile, ExtensionsSyncState];
   "extensions.syncApply": [Profile & ExtensionsSyncApply, ExtensionsSyncApplied];
   "extensions.loadHealth": [Profile, ExtensionsLoadHealth];
 
   "search.engines": [Profile, { list: { engines: ChromeSearchEngine[] } }];
-  "search.setEngineName": [{ name: string }, null];
+  "search.setEngineName": [{ name: string; keyword?: string; url?: string }, null];
   "search.suggest": [Profile & { url: string; id: number }, { status: number; body?: string; netError?: number; stopped?: true }];
   "search.stopSuggest": [Profile & { id: number }, Done];
 
   "media.displayMediaSources": [{}, DisplayMediaSource[]];
+  "media.displayMediaThumbnails": [{ ids: string[]; width: number }, Record<string, string>];
   "media.screenRecordingAllowed": [{}, boolean];
   "media.requestScreenRecording": [{}, boolean];
   "media.selectDevice": [{ id: number; index: number }, null];
@@ -153,59 +170,75 @@ export type EngineCalls = {
   "contentBlocker.state": [{}, ContentBlockerState];
   "contentBlocker.setEnabled": [{ enabled: boolean }, null];
   "contentBlocker.setListEnabled": [{ id: string; enabled: boolean }, null];
+  "contentBlocker.addList": [{ url: string }, AddedFilterList];
+  "contentBlocker.removeList": [{ id: string }, null];
   "contentBlocker.isAllowed": [{ host: string }, boolean];
   "contentBlocker.setAllowed": [{ host: string; allowed: boolean }, null];
+  "contentBlocker.removeAllowed": [{ host: string }, { removed: boolean }];
+  "contentBlocker.hiddenElements": [{ profile: string }, string[]];
+  "contentBlocker.hideElements": [{ profile: string; filters: string[] }, null];
+  "contentBlocker.restoreElements": [{ profile: string; filters: string[] }, null];
   "contentBlocker.devFailNextMessage": [{}, null];
   "contentBlocker.devDelayNextLoad": [{ ms: number }, null];
-
-  "history.query": [Profile & { maxUrls: number; maxVisits: number }, { entries: (HistoryWireRow & { v: number[] })[] }];
-  "history.add": [Profile & { pages: { u: string; t: string; v: number[] }[]; toleranceMs: number }, { added: number }];
-  "history.import": [Profile & { rows: { u: string; t: string; n: number; l: number }[] }, Done];
-  "history.deleteUrls": [Profile & { urls: string[] }, Done];
-  "history.watch": [Profile, Done];
-
-  "bookmarks.tree": [Profile, { bar: EngineBookmark; other: EngineBookmark }];
-  "bookmarks.apply": [Profile & { ops: BookmarkOp[] }, { applied: number; skipped: number; invalid: string[] }];
-  "bookmarks.watch": [Profile, Done];
-  "bookmarks.exportHtml": [Profile, string | null];
-
-  "favicons.get": [Profile & { pages: string[]; icons: string[]; size: number }, { pages: Record<string, { png: string; icon: string }>; icons: Record<string, { png: string }> }];
-  "favicons.set": [Profile & { page: string; icon: string; png: string }, { stored: boolean }];
-  "favicons.fetch": [Profile & { url: string }, FaviconImage | null];
 
   "webView.setDisplayMediaPicker": [{ enabled: boolean }, null];
   "webView.setPeekModifier": [{ modifier: "alt" | "shift" | "off" }, null];
   "webView.setSplitLinkModifier": [{ modifier: "alt" | "altShift" }, null];
   "webView.setPeekOtherSiteTabs": [{ tabIds: string[] }, null];
   "webView.setSelectionPopover": [{ enabled: boolean }, null];
+  "webView.setBlockAutoplayEverywhere": [{ enabled: boolean }, null];
   "webView.setCommandScrollZoom": [{ enabled: boolean }, null];
   "webView.setLittleArdiaOpensNewTabLinks": [{ enabled: boolean }, null];
+  "webView.setPopupsOpenAsTabs": [{ enabled: boolean }, null];
   "webView.setAutoPictureInPicture": [{ enabled: boolean }, null];
   "webView.setVideoUpscaling": [{ enabled: boolean }, null];
-  "webView.setVideoUpscalingTestConditions": [{ lowPower?: boolean; thermalPressure?: boolean }, null];
+  "webView.setVideoUpscalingTestConditions": [{ lowPower?: boolean; thermalPressure?: boolean; capturing?: boolean }, null];
   "webView.videoUpscalingState": [{}, VideoUpscalingState | null];
+  "webView.takeContentDrift": [{}, { layouts: number; fits: number; maxPoints: number }];
+  "webView.takeFirstPaintHolds": [{}, { held: number; painted: number; loaded: number; pressed: number; timedOut: number; heldMs: number }];
 
   "webKit.removeDownloadStaging": [{ path: string }, boolean];
   "webKit.endPrivateSession": [{ session: string }, null];
   "webKit.cookieStoreKey": [Profile, string];
   "webKit.importCookies": [Profile & { storeKey: string; cookies: PageCookie[] }, number];
+  "webKit.exportCookies": [Profile & { urls: string[]; keys?: string[] }, number];
+  "webKit.watchSiteData": [{ enabled: boolean }, null];
+  "webKit.siteDataReady": [{ id: string }, null];
+  "webKit.readSiteData": [Profile & { domains: string[]; origins: string[] }, SiteData | null];
+  "webKit.writeSiteData": [Profile & { set: PageCookie[]; remove: CookieRemoval[]; storage: Record<string, StorageChange> }, SiteDataWritten | null];
+  "webKit.setZoom": [Profile & { host: string; zoom: number }, null];
+  "webKit.setFraudWarnings": [{ enabled: boolean }, null];
+  "webKit.writeCopiedAddress": [{ request: number; url: CleanedUrl }, boolean];
   "webKit.devStoreExists": [Profile, boolean];
   "webKit.devTouchStore": [Profile, boolean];
   "webKit.devHoldStore": [Profile, null];
   "webKit.devParkedTransfers": [{}, string[]];
   "webKit.devContentBlocker": [{}, Record<string, unknown>];
   "webKit.passkeyAccess": [{}, PasskeyAccess];
+  "webKit.notificationAction": [{ id: string; action: "click" | "close" }, null];
   "webKit.requestPasskeyAccess": [{}, PasskeyAccess];
 };
 
-export type EngineEvents = {
+export type EngineEvents = BookmarksEvents & FaviconsEvents & HistoryEvents & {
   "engine.systemState": SystemState;
   "engine.cliControl": CliControlStatus;
   "engine.hoverLost": HoverLostEpisode;
+  "engine.popupProtectedMedia": PopupProtectedMedia;
+  "engine.devToolsKeyKept": { epoch: string };
+  "engine.cursorRestored": CursorRestore;
+  "engine.windowUnpainted": WindowUnpaintedRecord;
+  "engine.pressLoopLong": PressLoopLongReport;
   "tabs.strips": TabStripTransaction;
   "downloads.changed": Download;
   "permissions.requested": PermissionRequest;
   "permissions.dismissed": { id: string };
+  "webKit.counted": { name: WebKitCount; epoch?: string };
+  "webKit.copyAddress": { url: string; request: number; epoch?: string };
+  "webKit.siteDataWanted": { id: string; profile: string; origin: string; epoch?: string };
+  "webKit.siteCookiesChanged": { profile: string; domains: string[]; epoch?: string };
+  "webKit.notification": { profile: string; notification: WebNotification; epoch?: string };
+  "webKit.notificationClose": { id: string };
+  "webKit.openWindow": OpenWindowRequest & { profile: string };
   "contentBlocker.changed": ContentBlockerStats;
   "extensions.changed": ExtensionsChange;
   "extensions.tabs": TabsRequest;
@@ -216,10 +249,16 @@ export type EngineEvents = {
   "extensions.actionShortcut": ActionPopupRequest;
   "extensions.action": ExtensionActionChange;
   "extensions.sync": { profile: string } & ExtensionSyncIntent;
-  "history.changed": HistoryChangedBatch;
-  "bookmarks.changed": { profile: string };
   "profiles.loaded": { profile: string };
   "media.deviceChooser": DeviceChooser;
   "media.castDialog": CastDialog;
   "media.castRoutes": { profile: string; routes: CastRoute[] };
+};
+
+export type WindowsHostEvents = {
+  "tabs.windowRequest": WindowRequest;
+};
+
+export type LinuxHostEvents = {
+  "reauth.requested": { purpose: string; granted: boolean; result: string; method?: "polkit" | "loginPassword" };
 };

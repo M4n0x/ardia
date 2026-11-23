@@ -1,15 +1,29 @@
 import AppKit
+import ArdiaCore
 import ExpoModulesCore
 
 public class DialogsModule: Module {
+  private static var shownOnly: [(window: NSWindow, alert: NSAlert, key: String?)] = []
+
   public func definition() -> ModuleDefinition {
     Name("ArdiaDialogs")
+
+    Constant("dismissesShownOnly") { true }
 
     AsyncFunction("confirm") { (options: ConfirmOptions, promise: Promise) in
       if let file = MenuChoice.testFile(flag: "appDialog", name: "dialog.json"),
          let answer = MenuChoice.testAnswer(dumping: options.toDictionary().merging(["kind": "confirm"]) { $1 }, to: file) {
         let words = Set(answer.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
         promise.resolve(["confirmed": words.contains("confirm"), "suppressed": words.contains("suppress")])
+        return
+      }
+      if options.onlyIfShown && (LaunchConfig.shared.background || DialogsModule.visibleWindow(options.windowId) == nil) {
+        promise.resolve(["confirmed": false, "suppressed": false, "unshown": true])
+        return
+      }
+      let sheetWindow = DialogsModule.visibleWindow(options.windowId)
+      if options.sheetOnly && sheetWindow == nil {
+        promise.resolve(["confirmed": false, "suppressed": false, "unavailable": true])
         return
       }
       let alert = DialogsModule.alert(title: options.title, message: options.message)
@@ -20,12 +34,59 @@ public class DialogsModule: Module {
         alert.showsSuppressionButton = true
         alert.suppressionButton?.title = suppression
       }
-      DialogsModule.present(alert, windowId: options.windowId) { response in
+      let answer = { (response: NSApplication.ModalResponse) in
+        DialogsModule.shownOnly.removeAll { $0.alert === alert }
         promise.resolve([
           "confirmed": response == .alertFirstButtonReturn,
           "suppressed": alert.suppressionButton?.state == .on,
         ])
       }
+      if options.onlyIfShown, let window = DialogsModule.visibleWindow(options.windowId) {
+        DialogsModule.shownOnly.append((window, alert, options.dismissKey))
+        alert.beginSheetModal(for: window, completionHandler: answer)
+        return
+      }
+      if options.sheetOnly, let sheetWindow {
+        alert.beginSheetModal(for: sheetWindow, completionHandler: answer)
+        return
+      }
+      DialogsModule.present(alert, windowId: options.windowId, completion: answer)
+    }.runOnQueue(.main)
+    AsyncFunction("dismissShownOnly") { (key: String?) in
+      for (window, alert, shownKey) in DialogsModule.shownOnly where key == nil || shownKey == key {
+        window.endSheet(alert.window, returnCode: .cancel)
+      }
+    }.runOnQueue(.main)
+    AsyncFunction("choose") { (options: ChooseOptions, promise: Promise) in
+      if let file = MenuChoice.testFile(flag: "appDialog", name: "dialog.json"),
+         let answer = MenuChoice.testAnswer(dumping: options.toDictionary().merging(["kind": "choose"]) { $1 }, to: file) {
+        let picked = options.choices.firstIndex(of: answer) ?? Int(answer) ?? -1
+        promise.resolve(["choice": options.choices.indices.contains(picked) ? picked : -1])
+        return
+      }
+      guard !options.choices.isEmpty else { return promise.resolve(["choice": -1]) }
+      if options.onlyIfShown && (LaunchConfig.shared.background || DialogsModule.visibleWindow(options.windowId) == nil) {
+        promise.resolve(["choice": -1, "unshown": true])
+        return
+      }
+      let alert = DialogsModule.alert(title: options.title, message: options.message)
+      for choice in options.choices { alert.addButton(withTitle: choice) }
+      if options.noDefault { alert.buttons.first?.keyEquivalent = "" }
+      if let cancel = options.cancelChoice, alert.buttons.indices.contains(cancel) {
+        alert.buttons[cancel].keyEquivalent = "\u{1b}"
+        alert.window.initialFirstResponder = alert.buttons[cancel]
+      }
+      let answer = { (response: NSApplication.ModalResponse) in
+        DialogsModule.shownOnly.removeAll { $0.alert === alert }
+        let index = response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+        promise.resolve(["choice": options.choices.indices.contains(index) ? index : -1])
+      }
+      if options.onlyIfShown, let window = DialogsModule.visibleWindow(options.windowId) {
+        DialogsModule.shownOnly.append((window, alert, options.dismissKey))
+        alert.beginSheetModal(for: window, completionHandler: answer)
+        return
+      }
+      DialogsModule.present(alert, windowId: options.windowId, completion: answer)
     }.runOnQueue(.main)
     AsyncFunction("prompt") { (options: PromptOptions, promise: Promise) in
       if let file = MenuChoice.testFile(flag: "appDialog", name: "dialog.json"),
@@ -66,6 +127,12 @@ public class DialogsModule: Module {
     }.runOnQueue(.main)
   }
 
+  static func dismissShownOnly(key: String) {
+    for (window, alert, shownKey) in shownOnly where shownKey == key {
+      window.endSheet(alert.window, returnCode: .cancel)
+    }
+  }
+
   static func alert(title: String, message: String) -> NSAlert {
     let alert = NSAlert()
     alert.messageText = title
@@ -73,8 +140,13 @@ public class DialogsModule: Module {
     return alert
   }
 
+  static func visibleWindow(_ windowId: String?) -> NSWindow? {
+    guard let window = windowId.flatMap({ WindowManager.shared.window($0) }), window.isVisible, !window.isMiniaturized else { return nil }
+    return window
+  }
+
   static func present(_ alert: NSAlert, windowId: String?, completion: @escaping (NSApplication.ModalResponse) -> Void) {
-    if let window = windowId.flatMap({ WindowManager.shared.window($0) }), window.isVisible {
+    if let window = visibleWindow(windowId) {
       alert.beginSheetModal(for: window, completionHandler: completion)
     } else {
       completion(alert.runModal())
